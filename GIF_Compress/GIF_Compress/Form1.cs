@@ -16,10 +16,28 @@ namespace GIF_Compress
 {
     public partial class Form1 : Form
     {
-        private string[] mAllgif = null;
+        private List<string> mAllgif;
+        private int mTargetW, mTargetH, mTargetFrame;
+        private string mSaveDir;
+
         public Form1()
         {
             InitializeComponent();
+            InitListView();
+            mTargetW = int.Parse(textBox1.Text);
+            mAllgif = new List<string>();
+            mSaveDir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"/temp/";
+            if (!Directory.Exists(mSaveDir))
+            {
+                Directory.CreateDirectory(mSaveDir);
+            }
+
+        }
+
+        private void InitListView()
+        {
+            listView1.Columns.Add("文件名", -2, HorizontalAlignment.Left);
+            listView1.Columns[0].Width = listView1.Width;
         }
 
         private void button1_Click(object sender, EventArgs e)
@@ -29,22 +47,39 @@ namespace GIF_Compress
                 return;
             }
 
-            for (int i = 0, c = mAllgif.Length; i < c; i++)
+            for (int i = 0, c = mAllgif.Count; i < c; i++)
             {
                 CompressGIF(mAllgif[i]);
             }
+
+            MessageBox.Show("压缩完成!", "");
+        }
+        private void button2_Click(object sender, EventArgs e)
+        {
+            mAllgif.Clear();
+            listView1.Clear();
+            InitListView();
         }
 
         private void listView1_DragDrop(object sender, DragEventArgs e)
         {
-            mAllgif = (string[])e.Data.GetData(DataFormats.FileDrop, false);
+            string[] gifs = (string[])e.Data.GetData(DataFormats.FileDrop, false);
 
-            for (int i = 0,c = mAllgif.Length; i < c; i++)
+            string fileName = string.Empty;
+            for (int i = 0,c = gifs.Length; i < c; i++)
             {
-                listView1.Items.Add(mAllgif[i]);
+                fileName = gifs[i];
+                if(mAllgif.Contains(fileName))
+                {
+                    continue;
+                }
+                mAllgif.Add(fileName);
+                if (Path.GetExtension(fileName).ToLower().Equals(".gif"))
+                {
+                    listView1.Items.Add(fileName);
+                }
             }
         }
-
         private void listView1_DragEnter(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(DataFormats.FileDrop))
@@ -57,6 +92,34 @@ namespace GIF_Compress
             }
         }
 
+        private void TextBox1_TextChanged(object sender, EventArgs e)
+        {
+            if(!int.TryParse(textBox1.Text, out mTargetW) || mTargetW <= 0)
+            {
+                MessageBox.Show("请输入正整数!", "错误");
+            }
+        }
+
+        private void TextBox2_TextChanged(object sender, EventArgs e)
+        {
+            if (!int.TryParse(textBox1.Text, out mTargetH) || mTargetH <= 0)
+            {
+                MessageBox.Show("请输入正整数!", "错误");
+            }
+        }
+
+        private void TrackBar1_Scroll(object sender, EventArgs e)
+        {
+            mTargetFrame = trackBar1.Value;
+            label4.Text = mTargetFrame.ToString();
+        }
+
+        private void CheckBox1_CheckedChanged(object sender, EventArgs e)
+        {
+            checkBox1.Checked = true;
+        }
+
+
 
 
 
@@ -65,15 +128,22 @@ namespace GIF_Compress
         {
             //原图路径
             //string imgPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"\2.gif";
+            string savePath = mSaveDir + Path.GetFileName(gifInPath);
+            if(File.Exists(savePath))
+            {
+                File.Delete(savePath);
+            }
+
             //原图
             Image img = Image.FromFile(gifInPath);
-            //不够100*100的不缩放
-            if (img.Width > 100 && img.Height > 100)
+            //宽不够指定值的不缩放
+            if (img.Width > mTargetW)
             {
+                mTargetH = (int)((float)img.Height / img.Width * mTargetW);
                 //新图第一帧
-                Image new_img = new Bitmap(100, 100);
+                Image new_img = new Bitmap(mTargetW, mTargetH);
                 //新图其他帧
-                Image new_imgs = new Bitmap(100, 100);
+                Image new_imgs = new Bitmap(mTargetW, mTargetH);
                 //新图第一帧GDI+绘图对象
                 Graphics g_new_img = Graphics.FromImage(new_img);
                 //新图其他帧GDI+绘图对象
@@ -124,7 +194,7 @@ namespace GIF_Compress
                         if (c == 0)
                         {
                             //将原图第一帧画给新图第一帧
-                            g_new_img.DrawImage(img, new Rectangle(0, 0, 100, 100), new Rectangle(0, 0, img.Width, img.Height), GraphicsUnit.Pixel);
+                            g_new_img.DrawImage(img, new Rectangle(0, 0, mTargetW, mTargetH), new Rectangle(0, 0, img.Width, img.Height), GraphicsUnit.Pixel);
                             //把振频和透明背景调色板等设置复制给新图第一帧
                             for (int i = 0; i < img.PropertyItems.Length; i++)
                             {
@@ -134,13 +204,13 @@ namespace GIF_Compress
                             //第一帧需要设置为MultiFrame
                             ep.Param[0] = new EncoderParameter(encoder, (long)EncoderValue.MultiFrame);
                             //保存第一帧
-                            new_img.Save(Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"/temp/" + Path.GetFileName(gifInPath), ici, ep);
+                            new_img.Save(savePath, ici, ep);
                         }
                         //其他帧
                         else
                         {
                             //把原图的其他帧画给新图的其他帧
-                            g_new_imgs.DrawImage(img, new Rectangle(0, 0, 100, 100), new Rectangle(0, 0, img.Width, img.Height), GraphicsUnit.Pixel);
+                            g_new_imgs.DrawImage(img, new Rectangle(0, 0, mTargetW, mTargetH), new Rectangle(0, 0, img.Width, img.Height), GraphicsUnit.Pixel);
                             //把振频和透明背景调色板等设置复制给新图第一帧
                             for (int i = 0; i < img.PropertyItems.Length; i++)
                             {
@@ -166,6 +236,10 @@ namespace GIF_Compress
                 new_imgs.Dispose();
                 g_new_img.Dispose();
                 g_new_imgs.Dispose();
+            }
+            else
+            {
+                File.Copy(gifInPath, savePath);
             }
         }
     }
