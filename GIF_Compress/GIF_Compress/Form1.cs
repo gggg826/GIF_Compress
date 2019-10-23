@@ -73,9 +73,9 @@ namespace GIF_Compress
                 {
                     continue;
                 }
-                mAllgif.Add(fileName);
                 if (Path.GetExtension(fileName).ToLower().Equals(".gif"))
                 {
+                    mAllgif.Add(fileName);
                     listView1.Items.Add(fileName);
                 }
             }
@@ -128,6 +128,12 @@ namespace GIF_Compress
         {
             //原图路径
             //string imgPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) + @"\2.gif";
+
+            //做一层保护，判断当前输出文件夹存在与否
+            if (!Directory.Exists(mSaveDir))
+            {
+                Directory.CreateDirectory(mSaveDir);
+            }
             string savePath = mSaveDir + Path.GetFileName(gifInPath);
             if(File.Exists(savePath))
             {
