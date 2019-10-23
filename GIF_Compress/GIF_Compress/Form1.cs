@@ -17,7 +17,8 @@ namespace GIF_Compress
     public partial class Form1 : Form
     {
         private List<string> mAllgif;
-        private int mTargetW, mTargetH, mTargetFrame;
+        private int mTargetW, mTargetH;
+        private float mTargetFrameDelay;
         private string mSaveDir;
 
         public Form1()
@@ -46,6 +47,9 @@ namespace GIF_Compress
             {
                 return;
             }
+
+            MessageBox.Show(GetDelay(mAllgif[0]).ToString());
+            return;
 
             for (int i = 0, c = mAllgif.Count; i < c; i++)
             {
@@ -110,8 +114,8 @@ namespace GIF_Compress
 
         private void TrackBar1_Scroll(object sender, EventArgs e)
         {
-            mTargetFrame = trackBar1.Value;
-            label4.Text = mTargetFrame.ToString();
+            mTargetFrameDelay = 1 / (float)trackBar1.Value;
+            label4.Text = trackBar1.Value.ToString();
         }
 
         private void CheckBox1_CheckedChanged(object sender, EventArgs e)
@@ -246,6 +250,45 @@ namespace GIF_Compress
             else
             {
                 File.Copy(gifInPath, savePath);
+            }
+        }
+
+
+        private int GetDelay(string sfile)
+        {
+            Image img = Image.FromFile(sfile);//加载Gif图片
+            FrameDimension dim = new FrameDimension(img.FrameDimensionsList[0]);
+            int framcount = img.GetFrameCount(dim);
+            if (framcount <= 1)
+                return 0;
+            else
+            {
+                int delay = 0;
+                bool stop = false;
+                for (int i = 0; i < framcount; i++)//遍历图像帧
+                {
+                    if (stop == true)
+                        break;
+                    img.SelectActiveFrame(dim, i);//激活当前帧
+                    for (int j = 0; j < img.PropertyIdList.Length; j++)//遍历帧属性
+                    {
+                        if ((int)img.PropertyIdList.GetValue(j) == 0x5100)//如果是延迟时间
+                        {
+                            PropertyItem pItem = (PropertyItem)img.PropertyItems.GetValue(j);//获取延迟时间属性
+                            byte[] delayByte = new byte[4];//延迟时间，以1/100秒为单位
+                            delayByte[0] = pItem.Value[i * 4];
+                            delayByte[1] = pItem.Value[1 + i * 4];
+                            delayByte[2] = pItem.Value[2 + i * 4];
+                            delayByte[3] = pItem.Value[3 + i * 4];
+                            delay = BitConverter.ToInt32(delayByte, 0) * 10; //乘以10，获取到毫秒
+                            stop = true;
+                            break;
+                        }
+                    }
+
+
+                }
+                return delay;
             }
         }
     }
