@@ -17,8 +17,7 @@ namespace GIF_Compress
     public partial class Form1 : Form
     {
         private List<string> mAllgif;
-        private int mTargetW;
-        private float mTargetFrameDelay;
+        private int mTargetW, mTargetFrameDelay;
         private string mSaveDir;
         private string mCurrentSaveFilePath;
 
@@ -111,7 +110,7 @@ namespace GIF_Compress
 
         private void SetTargetFrameCount()
         {
-            mTargetFrameDelay = 1 / (float)trackBar1.Value;
+            mTargetFrameDelay = 100 / trackBar1.Value;//单位为0.1毫秒，与gif记录的延迟一致
             label4.Text = trackBar1.Value.ToString();
         }
 
@@ -178,11 +177,18 @@ namespace GIF_Compress
             //遍历维数
             foreach (Guid gid in img.FrameDimensionsList)
             {
+                //计算减帧数据
+                PropertyItem[] propertyItems = img.PropertyItems;
+                List<int> remaindFramIndexArr = FilterFramList(mTargetFrameDelay, ref propertyItems);
+
+
                 //因为是缩小GIF文件所以这里要设置为Time
                 //如果是TIFF这里要设置为PAGE
                 FrameDimension f = FrameDimension.Time;
                 //获取总帧数
                 int count = img.GetFrameCount(f);
+                //减帧后的可用帧index
+                int nextFramIndex = 0;
                 //保存标示参数
                 Encoder encoder = Encoder.SaveFlag;
                 //
@@ -203,6 +209,16 @@ namespace GIF_Compress
                 //每一帧
                 for (int c = 0; c < count; c++)
                 {
+                    if(nextFramIndex > remaindFramIndexArr.Count - 1)
+                    {
+                        break;
+                    }
+
+                    if(c != remaindFramIndexArr[nextFramIndex])
+                    {
+                        continue;
+                    }
+
                     //选择由维度和索引指定的帧
                     img.SelectActiveFrame(f, c);
                     //第一帧
@@ -213,7 +229,7 @@ namespace GIF_Compress
                         //把振频和透明背景调色板等设置复制给新图第一帧
                         for (int i = 0; i < img.PropertyItems.Length; i++)
                         {
-                            new_img.SetPropertyItem(img.PropertyItems[i]);
+                            new_img.SetPropertyItem(propertyItems[i]);
                         }
                         ep = new EncoderParameters(1);
                         //第一帧需要设置为MultiFrame
@@ -238,6 +254,7 @@ namespace GIF_Compress
                         //向新图添加一帧
                         new_img.SaveAdd(new_imgs, ep);
                     }
+                    nextFramIndex++;
                 }
                 ep = new EncoderParameters(1);
                 //关闭多帧文件流
@@ -253,41 +270,68 @@ namespace GIF_Compress
             }
         }
 
-
-        private int GetDelay(string sfile)
+        /// <summary>
+        /// 重新生成减帧后的延迟数据，并返回剩余帧的index列表
+        /// </summary>
+        /// <param name="targetDelayTime"></param>
+        /// <param name="pItem"></param>
+        /// <returns></returns>
+        private List<int> FilterFramList(int targetDelayTime, ref PropertyItem[] pItem)
         {
-            Image img = Image.FromFile(sfile);//加载Gif图片
-            FrameDimension dim = new FrameDimension(img.FrameDimensionsList[0]);
-            int framcount = img.GetFrameCount(dim);
-            if (framcount <= 1)
-                return 0;
-            else
+            int i, c = pItem.Length;
+            int pItemDelayIndex = 0;//pitem中用于存储帧延迟信息的数组下标
+            byte[] dArray = null;//用于存储源帧延时的byte数组
+            for (i = 0; i < c; i++)
             {
-                int delay = 0;
-                bool stop = false;
-                for (int i = 0; i < framcount; i++)//遍历图像帧
-                {
-                    if (stop == true)
-                        break;
-                    img.SelectActiveFrame(dim, i);//激活当前帧
-                    for (int j = 0; j < img.PropertyIdList.Length; j++)//遍历帧属性
-                    {
-                        if ((int)img.PropertyIdList.GetValue(j) == 0x5100)//如果是延迟时间
-                        {
-                            PropertyItem pItem = (PropertyItem)img.PropertyItems.GetValue(j);//获取延迟时间属性
-                            byte[] delayByte = new byte[4];//延迟时间，以1/100秒为单位
-                            delayByte[0] = pItem.Value[i * 4];
-                            delayByte[1] = pItem.Value[1 + i * 4];
-                            delayByte[2] = pItem.Value[2 + i * 4];
-                            delayByte[3] = pItem.Value[3 + i * 4];
-                            delay = BitConverter.ToInt32(delayByte, 0) * 10; //乘以10，获取到毫秒
-                            stop = true;
-                            break;
-                        }
-                    }
+                if (pItem[i].Id == 0x5100)//如果是延迟时间,https://docs.microsoft.com/zh-cn/dotnet/api/system.drawing.imaging.propertyitem.id?view=netframework-4.8#System_Drawing_Imaging_PropertyItem_Id
+                {
+                    pItemDelayIndex = i;
+                    dArray = pItem[i].Value;
+                    break;
                 }
-                return delay;
             }
+
+            List<int> fResult = new List<int>();//剔除延迟时间不够的帧后，保存符合条件的帧
+            List<byte> fDelayBytes = new List<byte>();
+            short lastFramDelay = 0;//当前遍例帧与前一帧之间的延迟时间
+            int totalFramDelay = 0;//有删帧,重新计算延迟
+
+            fResult.Add(0);//添加第一帧,从第二帧开始遍例
+            int fIndex = 1;//记录目标帧
+            for (i = 4, c = dArray.Length; i <= c; i += 4)
+            {
+                byte[] delayByte = new byte[4];//前一帧延迟时间，以1/100秒为单位
+                delayByte[0] = dArray[i - 4];
+                delayByte[1] = dArray[i - 3];
+                delayByte[2] = dArray[i - 2];
+                delayByte[3] = dArray[i - 1];
+                lastFramDelay = BitConverter.ToInt16(delayByte, 0); //单位为0.1毫秒
+                totalFramDelay += lastFramDelay;
+                if (totalFramDelay < targetDelayTime)
+                {
+                    //处理最后一帧延迟时间
+                    if(i + 4 > c)
+                    {
+                        fDelayBytes.AddRange(BitConverter.GetBytes(totalFramDelay));
+                    }
+                    fIndex++;
+                    continue;
+                }
+                
+                fResult.Add(fIndex);
+                fDelayBytes.AddRange(BitConverter.GetBytes(totalFramDelay));//这里是前一帧的延迟时间
+
+                //处理最后一帧延迟时间
+                if (i + 4 > c)
+                {
+                    fDelayBytes.AddRange(BitConverter.GetBytes(totalFramDelay));
+                }
+                fIndex++;
+                totalFramDelay = 0;
+            }
+
+            pItem[pItemDelayIndex].Value = fDelayBytes.ToArray();//重新设定减帧后的各帧延迟时间
+            return fResult;//返回减帧后的剩余帧在原数据中的Index列表
         }
     }
 }
